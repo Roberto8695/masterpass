@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "GeneradorContrasenaSegura",
-    "slug": "GeneradorContrasenaSegura",
+    "name": "MasterPass",
+    "slug": "MasterPass",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "generadorcontrasenasegura",
+    "icon": "./assets/images/masterpass.webp",
+    "scheme": "masterpass",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/images/masterpass.webp",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -17,8 +17,9 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.rcez.masterpass",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/masterpass.webp",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true
@@ -26,7 +27,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/masterpass.webp"
     },
     "plugins": [
       "expo-router"
