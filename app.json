@@ -4,12 +4,12 @@
     "slug": "MasterPass",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/masterpass.webp",
+    "icon": "./assets/images/masterpass.png",
     "scheme": "masterpass",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/masterpass.webp",
+      "image": "./assets/images/masterpass.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -19,7 +19,7 @@
     "android": {
       "package": "com.rcez.masterpass",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/masterpass.webp",
+        "foregroundImage": "./assets/images/masterpass.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true
@@ -27,13 +27,19 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/masterpass.webp"
+      "favicon": "./assets/images/masterpass.png"
     },
     "plugins": [
       "expo-router"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cad1e67d-25b3-47b0-ad60-b5368d70b515"
+      }
     }
   }
 }
