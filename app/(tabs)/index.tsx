@@ -3,6 +3,7 @@ import { StyleSheet, TouchableOpacity, Alert, ScrollView, Clipboard, DeviceEvent
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PasswordOptions {
   uppercase: boolean;
@@ -28,6 +29,8 @@ export default function PasswordGeneratorScreen() {
     symbols: true,
     length: 12,
   });
+  
+  const { logout } = useAuth();
 
   const savePasswordToHistory = async (newPassword: string) => {
     try {
@@ -97,6 +100,21 @@ export default function PasswordGeneratorScreen() {
         ? Math.min(prev.length + 1, 50) 
         : Math.max(prev.length - 1, 4)
     }));
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Cerrar Sesión',
+      '¿Estás seguro de que quieres cerrar la sesión? Tendrás que autenticarte nuevamente.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Cerrar Sesión', 
+          style: 'destructive',
+          onPress: logout 
+        },
+      ]
+    );
   };
 
   return (
@@ -211,6 +229,12 @@ export default function PasswordGeneratorScreen() {
           Recomendamos usar al menos 12 caracteres con todos los tipos habilitados para máxima seguridad.
         </Text>
       </View>
+
+      {/* Botón de logout */}
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out" size={20} color="#ff4757" />
+        <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -382,5 +406,22 @@ const styles = StyleSheet.create({
     color: '#856404',
     marginLeft: 8,
     lineHeight: 20,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#ff4757',
+  },
+  logoutButtonText: {
+    color: '#ff4757',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
   },
 });
