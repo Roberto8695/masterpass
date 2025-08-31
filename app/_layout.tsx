@@ -4,13 +4,13 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { View, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import BiometricAuthScreen from '@/components/BiometricAuthScreen';
-import { AuthProvider } from '@/contexts/AuthContext';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -30,9 +30,6 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
-  
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
@@ -42,40 +39,65 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded) {
       SplashScreen.hideAsync();
-      checkAuthState();
     }
   }, [loaded]);
 
-  const checkAuthState = async () => {
-    try {
-      // Verificar si el usuario ya se autenticó en esta sesión
-      const authState = await AsyncStorage.getItem('biometric_auth_state');
-      if (authState === 'authenticated') {
-        setIsAuthenticated(true);
+  if (!loaded) {
+    return null;
+  }
+
+  return (
+    <AuthProvider initialAuthState={false}>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}
+
+function AuthenticatedApp() {
+  const { isAuthenticated, setIsAuthenticated } = useAuth();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [isReturningToApp, setIsReturningToApp] = useState(false);
+
+  useEffect(() => {
+    // Siempre iniciar sin autenticación para forzar biometría
+    setIsCheckingAuth(false);
+  }, []);
+
+  // Listener para detectar cuando la app vuelve del background
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+        // La app volvió al foreground, pedir autenticación de nuevo
+        setIsReturningToApp(true);
+        setIsAuthenticated(false);
       }
-    } catch (error) {
-      console.error('Error checking auth state:', error);
-    } finally {
-      setIsCheckingAuth(false);
-    }
-  };
+      setAppState(nextAppState);
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      subscription?.remove();
+    };
+  }, [appState, setIsAuthenticated]);
 
   const handleAuthSuccess = async () => {
     try {
-      // Guardar estado de autenticación
-      await AsyncStorage.setItem('biometric_auth_state', 'authenticated');
+      // Guardar estado de autenticación temporal (solo para la sesión actual)
+      await AsyncStorage.setItem('session_auth_time', Date.now().toString());
       setIsAuthenticated(true);
+      setIsReturningToApp(false); // Reset flag después de autenticación exitosa
     } catch (error) {
       console.error('Error saving auth state:', error);
     }
   };
 
   const handleAuthSkip = () => {
-    // Permitir acceso sin autenticación (opcional)
-    setIsAuthenticated(true);
+    // No permitir saltar la autenticación para mayor seguridad
   };
 
-  if (!loaded || isCheckingAuth) {
+  if (isCheckingAuth) {
     return null;
   }
 
@@ -86,17 +108,14 @@ export default function RootLayout() {
         <BiometricAuthScreen
           onAuthSuccess={handleAuthSuccess}
           onAuthSkip={handleAuthSkip}
-          allowSkip={false} // Cambiar a true si quieres permitir saltar la autenticación
+          allowSkip={false} // No permitir saltar la autenticación
+          isReturningToApp={isReturningToApp}
         />
       </View>
     );
   }
 
-  return (
-    <AuthProvider initialAuthState={isAuthenticated}>
-      <RootLayoutNav />
-    </AuthProvider>
-  );
+  return <RootLayoutNav />;
 }
 
 function RootLayoutNav() {

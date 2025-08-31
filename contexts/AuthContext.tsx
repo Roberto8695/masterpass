@@ -5,6 +5,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   logout: () => Promise<void>;
   setIsAuthenticated: (value: boolean) => void;
+  forceReauth: () => void;
+  isLoggingOut: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,14 +21,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   initialAuthState 
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(initialAuthState);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const logout = async () => {
     try {
-      await AsyncStorage.removeItem('biometric_auth_state');
+      setIsLoggingOut(true);
+      // Limpiar todos los datos de autenticación
+      await AsyncStorage.multiRemove([
+        'biometric_auth_state',
+        'session_auth_time'
+      ]);
       setIsAuthenticated(false);
+      setIsLoggingOut(false);
     } catch (error) {
       console.error('Error during logout:', error);
+      setIsLoggingOut(false);
     }
+  };
+
+  const forceReauth = () => {
+    // Forzar re-autenticación sin limpiar datos de la app
+    setIsAuthenticated(false);
   };
 
   return (
@@ -34,6 +49,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       isAuthenticated,
       logout,
       setIsAuthenticated,
+      forceReauth,
+      isLoggingOut,
     }}>
       {children}
     </AuthContext.Provider>

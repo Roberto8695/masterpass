@@ -28,11 +28,6 @@
       ],
       "edgeToEdgeEnabled": true
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/masterpass.png"
-    },
     "plugins": [
       "expo-router",
       [
@@ -40,7 +35,9 @@
         {
           "faceIDPermission": "Permite que $(PRODUCT_NAME) use Face ID para autenticación segura."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

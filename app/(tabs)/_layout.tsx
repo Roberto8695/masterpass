@@ -29,7 +29,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Generador',
+          title: 'MasterPass',
           tabBarIcon: ({ color }) => <TabBarIcon name="lock" color={color} />,
           headerRight: () => (
             <Link href="/modal" asChild>

@@ -16,12 +16,14 @@ interface BiometricAuthScreenProps {
   onAuthSuccess: () => void;
   onAuthSkip?: () => void;
   allowSkip?: boolean;
+  isReturningToApp?: boolean;
 }
 
 export default function BiometricAuthScreen({
   onAuthSuccess,
   onAuthSkip,
   allowSkip = false,
+  isReturningToApp = false,
 }: BiometricAuthScreenProps) {
   const {
     isAvailable,
@@ -80,8 +82,12 @@ export default function BiometricAuthScreen({
           resizeMode="contain"
         />
         
-        <Text style={styles.title}>MasterPass</Text>
-        <Text style={styles.subtitle}>Generador de Contraseñas Seguras</Text>
+        <Text style={styles.title}>
+          {isReturningToApp ? "Bienvenido de vuelta" : "MasterPass"}
+        </Text>
+        <Text style={styles.subtitle}>
+          {isReturningToApp ? "Usa tu huella digital para continuar" : "Generador de Contraseñas Seguras"}
+        </Text>
         
         {/* Icono biométrico */}
         <View style={styles.biometricIconContainer}>
@@ -93,7 +99,9 @@ export default function BiometricAuthScreen({
         </View>
         
         <Text style={styles.description}>
-          {isAvailable
+          {isReturningToApp 
+            ? "Por seguridad, necesitas autenticarte de nuevo para continuar usando la aplicación"
+            : isAvailable
             ? "Usa tu huella digital o reconocimiento facial para acceder de forma segura"
             : "La autenticación biométrica no está disponible"}
         </Text>
@@ -119,7 +127,13 @@ export default function BiometricAuthScreen({
             styles.authButtonText,
             !isAvailable && styles.authButtonTextDisabled
           ]}>
-            {isAvailable ? "Autenticar" : "No disponible"}
+            {isLoading 
+              ? "Autenticando..." 
+              : isReturningToApp 
+                ? "Desbloquear con huella" 
+                : isAvailable 
+                  ? "Acceder con huella digital" 
+                  : "No disponible"}
           </Text>
         </TouchableOpacity>
         

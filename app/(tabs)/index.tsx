@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, Alert, ScrollView, Clipboard, DeviceEventEmitter } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDatabase } from '@/hooks/useDatabase';
+import AddPasswordForm from '@/components/AddPasswordForm';
 
 interface PasswordOptions {
   uppercase: boolean;
@@ -27,35 +28,78 @@ export default function PasswordGeneratorScreen() {
     lowercase: true,
     numbers: true,
     symbols: true,
-    length: 12,
+    length: 15,
   });
+  const [showAddForm, setShowAddForm] = useState(false);
   
   const { logout } = useAuth();
+  const { 
+    isReady: isDatabaseReady, 
+    isLoading: isDatabaseLoading,
+    savePassword: saveToDatabase,
+    error: databaseError 
+  } = useDatabase();
+
+  // Mostrar error de base de datos si existe
+  useEffect(() => {
+    if (databaseError) {
+      Alert.alert(
+        'Error de Base de Datos',
+        databaseError,
+        [{ text: 'OK' }]
+      );
+    }
+  }, [databaseError]);
 
   const savePasswordToHistory = async (newPassword: string) => {
+    if (!isDatabaseReady) {
+      console.warn('⚠️ Base de datos no está lista');
+      return;
+    }
+
     try {
-      const newHistoryItem: PasswordHistoryItem = {
-        id: Date.now().toString(),
-        password: newPassword,
-        date: new Date().toLocaleString('es-ES'),
-        options: { ...options }
+      // Convertir opciones al formato de la base de datos
+      const dbOptions = {
+        length: options.length,
+        includeNumbers: options.numbers,
+        includeSymbols: options.symbols,
       };
 
-      // Cargar historial existente
-      const storedHistory = await AsyncStorage.getItem('passwordHistory');
-      const currentHistory = storedHistory ? JSON.parse(storedHistory) : [];
+      // Guardar en la base de datos SQLite encriptada
+      const passwordId = await saveToDatabase(
+        newPassword, 
+        dbOptions,
+        'Contraseña General'
+      );
       
-      const updatedHistory = [newHistoryItem, ...currentHistory].slice(0, 20); // Mantener solo las últimas 20
-      await AsyncStorage.setItem('passwordHistory', JSON.stringify(updatedHistory));
-      
-      // Emitir evento para notificar que el historial se actualizó
-      DeviceEventEmitter.emit('passwordHistoryUpdated', updatedHistory);
+      if (passwordId) {
+        // Emitir evento para notificar que el historial se actualizó
+        DeviceEventEmitter.emit('passwordHistoryUpdated');
+        console.log('✅ Contraseña guardada en base de datos encriptada');
+      } else {
+        throw new Error('No se pudo guardar la contraseña');
+      }
     } catch (error) {
-      console.error('Error saving password to history:', error);
+      console.error('❌ Error guardando contraseña en BD:', error);
+      Alert.alert(
+        'Error',
+        'No se pudo guardar la contraseña en la base de datos. Inténtalo de nuevo.'
+      );
     }
   };
 
   const generatePassword = () => {
+    // Validar longitud mínima de seguridad
+    if (options.length < 15) {
+      Alert.alert(
+        'Longitud Insegura', 
+        'Por seguridad, se requiere un mínimo de 15 caracteres. La longitud se ajustará automáticamente.',
+        [{ text: 'OK' }]
+      );
+      setOptions(prev => ({ ...prev, length: 15 }));
+      return;
+    }
+
     const uppercaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZÑ';
     const lowercaseChars = 'abcdefghijklmnopqrstuvwxyzñ';
     const numberChars = '0123456789';
@@ -98,27 +142,60 @@ export default function PasswordGeneratorScreen() {
       ...prev,
       length: increment 
         ? Math.min(prev.length + 1, 50) 
-        : Math.max(prev.length - 1, 4)
+        : Math.max(prev.length - 1, 15)
     }));
+  };
+
+  const getPasswordStrength = () => {
+    if (!password) return { level: 'none', color: '#ccc', text: 'Genera una contraseña' };
+    
+    const length = password.length;
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasNumbers = /[0-9]/.test(password);
+    const hasSymbols = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?¿/]/.test(password);
+    
+    let score = 0;
+    if (length >= 15) score += 2;
+    if (length >= 20) score += 1;
+    if (hasUpper) score += 1;
+    if (hasLower) score += 1;
+    if (hasNumbers) score += 1;
+    if (hasSymbols) score += 1;
+    
+    if (length < 15) {
+      return { level: 'insecure', color: '#dc3545', text: 'Insegura (< 15 caracteres)' };
+    } else if (score <= 4) {
+      return { level: 'weak', color: '#fd7e14', text: 'Débil' };
+    } else if (score <= 6) {
+      return { level: 'good', color: '#ffc107', text: 'Buena' };
+    } else {
+      return { level: 'strong', color: '#28a745', text: 'Muy Fuerte' };
+    }
   };
 
   const handleLogout = () => {
     Alert.alert(
       'Cerrar Sesión',
-      '¿Estás seguro de que quieres cerrar la sesión? Tendrás que autenticarte nuevamente.',
+      '¿Estás seguro de que quieres cerrar la sesión? Tendrás que usar tu huella digital para volver a acceder.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { 
           text: 'Cerrar Sesión', 
           style: 'destructive',
-          onPress: logout 
+          onPress: async () => {
+            await logout();
+            // El AuthProvider automáticamente cambiará isAuthenticated a false
+            // y esto hará que se muestre la pantalla de autenticación biométrica
+          }
         },
       ]
     );
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
         <Ionicons name="shield-checkmark" size={40} color="#4CAF50" />
         <Text style={styles.title}>Generador de Contraseñas</Text>
@@ -133,11 +210,28 @@ export default function PasswordGeneratorScreen() {
             {password || 'Presiona "Generar" para crear una contraseña'}
           </Text>
           {password && (
-            <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
-              <Ionicons name="copy" size={20} color="#007AFF" />
-            </TouchableOpacity>
+            <View style={styles.passwordActions}>
+              <TouchableOpacity style={styles.copyButton} onPress={copyToClipboard}>
+                <Ionicons name="copy" size={20} color="#007AFF" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.addAccountButton} 
+                onPress={() => setShowAddForm(true)}
+              >
+                <Ionicons name="add-circle" size={20} color="#28a745" />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
+        
+        {/* Indicador de fortaleza */}
+        {password && (
+          <View style={styles.strengthContainer}>
+            <Text style={[styles.strengthText, { color: getPasswordStrength().color }]}>
+              🔒 Fortaleza: {getPasswordStrength().text}
+            </Text>
+          </View>
+        )}
       </View>
 {/* Botón generar */}
       <TouchableOpacity style={styles.generateButton} onPress={generatePassword}>
@@ -151,6 +245,9 @@ export default function PasswordGeneratorScreen() {
         {/* Longitud */}
         <View style={styles.lengthContainer}>
           <Text style={styles.optionLabel}>Longitud: {options.length} caracteres</Text>
+          <Text style={styles.securityNote}>
+            🔒 Mínimo 15 caracteres para máxima seguridad
+          </Text>
           <View style={styles.lengthControls}>
             <TouchableOpacity 
               style={styles.lengthButton} 
@@ -235,7 +332,19 @@ export default function PasswordGeneratorScreen() {
         <Ionicons name="log-out" size={20} color="#ff4757" />
         <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Modal para agregar como cuenta */}
+      <AddPasswordForm
+        visible={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        onPasswordAdded={() => {
+          DeviceEventEmitter.emit('passwordHistoryUpdated');
+          Alert.alert('Cuenta Agregada', 'La contraseña ha sido guardada como una nueva cuenta.');
+        }}
+        initialPassword={password}
+      />
+    </>
   );
 }
 
@@ -296,9 +405,27 @@ const styles = StyleSheet.create({
     color: '#333',
     lineHeight: 24,
   },
+  strengthContainer: {
+    marginTop: 10,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  strengthText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   copyButton: {
     padding: 8,
     marginLeft: 10,
+  },
+  passwordActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addAccountButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   optionsContainer: {
     backgroundColor: 'white',
@@ -327,6 +454,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 10,
     color: '#333',
+  },
+  securityNote: {
+    fontSize: 12,
+    marginBottom: 10,
+    color: '#28a745',
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   lengthControls: {
     flexDirection: 'row',
