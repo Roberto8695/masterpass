@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, Alert, RefreshControl, Clipboard } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, Alert, RefreshControl, Clipboard, DeviceEventEmitter } from 'react-native';
 import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDatabase } from '../../hooks/useDatabase';
 import { DatabasePassword } from '../../hooks/useDatabase';
-import SecurityStats from '../../components/SecurityStats';
 import AddPasswordForm from '../../components/AddPasswordForm';
 import AccountCard from '../../components/AccountCard';
 import AccountSearchAndFilter from '../../components/AccountSearchAndFilter';
@@ -16,7 +15,8 @@ export default function HistoryScreen() {
     clearAll,
     markAsUsed,
     isLoading,
-    loadPasswords 
+    loadPasswords,
+    isReady
   } = useDatabase();
 
   const [filteredPasswords, setFilteredPasswords] = useState<DatabasePassword[]>([]);
@@ -25,8 +25,61 @@ export default function HistoryScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    setFilteredPasswords(passwords);
+    console.log('🔄 Actualizando filteredPasswords:', passwords.length, 'contraseñas');
+    // Asegurar que filteredPasswords siempre esté sincronizado
+    setFilteredPasswords([...passwords]);
   }, [passwords]);
+
+  // Cargar contraseñas cuando la pantalla se monte y la BD esté lista
+  useEffect(() => {
+    if (isReady) {
+      console.log('🔧 Base de datos lista, cargando contraseñas...');
+      loadPasswords().then(() => {
+        // Forzar actualización después de cargar
+        setFilteredPasswords([...passwords]);
+      });
+    }
+  }, [isReady, loadPasswords]);
+
+  // Escuchar eventos de actualización del historial
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      'passwordHistoryUpdated',
+      () => {
+        console.log('📡 Evento passwordHistoryUpdated recibido');
+        if (isReady) {
+          loadPasswords().then(() => {
+            // Forzar actualización después del evento
+            setTimeout(() => {
+              setFilteredPasswords([...passwords]);
+            }, 100);
+          });
+        }
+      }
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isReady, loadPasswords, passwords]);
+
+  // Debug: Imprimir estado actual
+  useEffect(() => {
+    console.log('📊 Estado actual:', {
+      passwordsLength: passwords.length,
+      filteredPasswordsLength: filteredPasswords.length,
+      isLoading,
+      isReady
+    });
+  }, [passwords.length, filteredPasswords.length, isLoading, isReady]);
+
+  // Forzar sincronización inicial
+  useEffect(() => {
+    if (passwords.length > 0 && filteredPasswords.length === 0) {
+      console.log('🔄 Forzando sincronización inicial...');
+      setFilteredPasswords([...passwords]);
+    }
+  }, [passwords, filteredPasswords]);
 
   const copyToClipboard = async (text: string) => {
     Clipboard.setString(text);
@@ -60,12 +113,39 @@ export default function HistoryScreen() {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
+    console.log('🔄 Refrescando datos manualmente...');
     await loadPasswords();
+    // Forzar actualización del filtro
+    setFilteredPasswords([...passwords]);
     setIsRefreshing(false);
+    console.log('✅ Refresh completado');
   };
 
   const exportPasswords = () => {
     Alert.alert('Exportar', 'Funcionalidad de exportación próximamente');
+  };
+
+  // Debug: Función para forzar sincronización
+  const forceSync = async () => {
+    console.log('🔧 Forzando sincronización...');
+    console.log('📊 Estado actual antes:', {
+      passwordsLength: passwords.length,
+      filteredPasswordsLength: filteredPasswords.length,
+      isReady,
+      isLoading
+    });
+    
+    await loadPasswords();
+    
+    // Forzar la actualización después de un delay
+    setTimeout(() => {
+      setFilteredPasswords([...passwords]);
+      console.log('📊 Estado después de sync:', {
+        passwordsLength: passwords.length,
+        filteredPasswordsLength: passwords.length,
+      });
+      Alert.alert('Debug', `BD Lista: ${isReady}\nContraseñas: ${passwords.length}\nMostradas: ${passwords.length}`);
+    }, 500);
   };
 
   return (
@@ -77,12 +157,18 @@ export default function HistoryScreen() {
             <View>
               <Text style={styles.title}>Mis Cuentas</Text>
               <Text style={styles.subtitle}>
-                {filteredPasswords.length} de {passwords.length} cuenta{passwords.length !== 1 ? 's' : ''}
+                {passwords.length} cuenta{passwords.length !== 1 ? 's' : ''} guardada{passwords.length !== 1 ? 's' : ''}
+                {passwords.length > 0 && ` • ${passwords.filter(p => p.lastUsed).length} usada${passwords.filter(p => p.lastUsed).length !== 1 ? 's' : ''}`}
+                {filteredPasswords.length !== passwords.length && ` • ${filteredPasswords.length} mostrada${filteredPasswords.length !== 1 ? 's' : ''}`}
               </Text>
             </View>
           </View>
           
           <View style={styles.headerActions}>
+            <TouchableOpacity onPress={forceSync} style={[styles.headerButton, {backgroundColor: '#ff9800'}]}>
+              <Ionicons name="refresh" size={24} color="#fff" />
+            </TouchableOpacity>
+            
             <TouchableOpacity onPress={() => setShowSearch(true)} style={styles.headerButton}>
               <Ionicons name="search" size={24} color="#007AFF" />
             </TouchableOpacity>
@@ -99,25 +185,18 @@ export default function HistoryScreen() {
           </View>
         </View>
 
-        <SecurityStats />
-
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Cargando cuentas...</Text>
           </View>
-        ) : filteredPasswords.length === 0 ? (
+        ) : passwords.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="folder-open-outline" size={80} color="#ccc" />
-            <Text style={styles.emptyTitle}>
-              {passwords.length === 0 ? 'No hay cuentas guardadas' : 'No se encontraron cuentas'}
-            </Text>
+            <Ionicons name="shield-outline" size={80} color="#ccc" />
+            <Text style={styles.emptyTitle}>Tu bóveda está vacía</Text>
             <Text style={styles.emptySubtitle}>
-              {passwords.length === 0 
-                ? 'Agrega tu primera cuenta tocando el botón +'
-                : 'Intenta ajustar los filtros de búsqueda'
-              }
+              Comienza guardando contraseñas seguras para tus sitios web y aplicaciones favoritas
             </Text>
-            {passwords.length === 0 && (
+            <View style={styles.quickActions}>
               <TouchableOpacity 
                 style={styles.addFirstButton}
                 onPress={() => setShowAddForm(true)}
@@ -125,11 +204,15 @@ export default function HistoryScreen() {
                 <Ionicons name="add" size={20} color="white" />
                 <Text style={styles.addFirstButtonText}>Agregar Primera Cuenta</Text>
               </TouchableOpacity>
-            )}
+              <Text style={styles.orText}>o</Text>
+              <Text style={styles.suggestionText}>
+                Ve a la pestaña "Generador" para crear una contraseña segura
+              </Text>
+            </View>
           </View>
         ) : (
           <FlatList
-            data={filteredPasswords}
+            data={passwords.length > 0 ? passwords : []}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <AccountCard
@@ -162,7 +245,10 @@ export default function HistoryScreen() {
         visible={showSearch}
         onClose={() => setShowSearch(false)}
         accounts={passwords}
-        onFilteredAccountsChange={setFilteredPasswords}
+        onFilteredAccountsChange={(filtered) => {
+          console.log('🔍 Filtro aplicado, mostrando:', filtered.length, 'de', passwords.length);
+          setFilteredPasswords(filtered);
+        }}
       />
 
       <AddPasswordForm
@@ -300,5 +386,21 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontSize: 16,
     fontWeight: '500',
+  },
+  quickActions: {
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 12,
+  },
+  orText: {
+    fontSize: 14,
+    color: '#999',
+    fontWeight: '500',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });

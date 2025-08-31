@@ -72,8 +72,7 @@ export const useBiometricAuth = () => {
       setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
 
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Confirma tu identidad',
-        subPromptMessage: 'Usa tu huella digital o reconocimiento facial',
+        promptMessage: 'Confirma tu identidad con tu huella digital o reconocimiento facial',
         cancelLabel: 'Cancelar',
         fallbackLabel: 'Usar PIN',
         disableDeviceFallback: false,
@@ -89,11 +88,25 @@ export const useBiometricAuth = () => {
         }));
         return true;
       } else {
+        let errorMessage = 'Falló la autenticación';
+        
+        // Manejar diferentes tipos de error basado en el string del error
+        const errorStr = String(result.error);
+        if (errorStr.includes('UserCancel') || errorStr.includes('cancel')) {
+          errorMessage = 'Autenticación cancelada por el usuario';
+        } else if (errorStr.includes('UserFallback')) {
+          errorMessage = 'Se seleccionó método alternativo';
+        } else if (errorStr.includes('BiometricUnavailable')) {
+          errorMessage = 'Autenticación biométrica no disponible';
+        } else if (errorStr.includes('NotEnrolled')) {
+          errorMessage = 'No hay datos biométricos registrados';
+        }
+        
         setAuthState(prev => ({
           ...prev,
           isAuthenticated: false,
           isLoading: false,
-          error: result.error === 'UserCancel' ? 'Autenticación cancelada' : 'Falló la autenticación'
+          error: errorMessage
         }));
         return false;
       }

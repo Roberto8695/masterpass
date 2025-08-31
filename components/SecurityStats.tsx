@@ -26,10 +26,17 @@ export default function SecurityStats({ onRefresh }: SecurityStatsProps) {
   } = useDatabase();
 
   useEffect(() => {
-    if (isDatabaseReady && databaseStats) {
+    console.log('🔍 SecurityStats - Estado cambió:', {
+      isDatabaseReady,
+      passwordsLength: passwords?.length || 0,
+      loading
+    });
+    if (isDatabaseReady) {
       calculateSecurityStats();
+    } else {
+      setLoading(false); // No se quede cargando si la BD no está lista
     }
-  }, [isDatabaseReady, databaseStats, passwords]);
+  }, [isDatabaseReady, passwords]);
 
   // Suscribirse a eventos de actualización del historial
   useEffect(() => {
@@ -56,18 +63,20 @@ export default function SecurityStats({ onRefresh }: SecurityStatsProps) {
     try {
       setLoading(true);
       
+      console.log('🧮 Calculando estadísticas con:', passwords?.length || 0, 'contraseñas');
+      
       // Analizar fortaleza de cada contraseña
       let strongPasswords = 0;
       let moderatePasswords = 0;
       let weakPasswords = 0;
-      let lastModified = 'Never';
+      let lastModified = 'Nunca';
       
       if (passwords && passwords.length > 0) {
         // Encontrar la fecha de última modificación más reciente
         const newestPassword = passwords.reduce((latest, current) => 
           current.lastModified > latest.lastModified ? current : latest
         );
-        lastModified = newestPassword.lastModified.toISOString();
+        lastModified = new Date(newestPassword.lastModified).toLocaleDateString('es-ES');
 
         // Analizar fortaleza de cada contraseña
         passwords.forEach(password => {
@@ -82,15 +91,26 @@ export default function SecurityStats({ onRefresh }: SecurityStatsProps) {
         });
       }
 
-      setLocalStats({
-        totalPasswords: databaseStats?.totalPasswords || 0,
+      const newStats = {
+        totalPasswords: passwords?.length || 0,
         lastModified,
         strongPasswords,
         moderatePasswords,
         weakPasswords
-      });
+      };
+
+      console.log('📊 Nuevas estadísticas calculadas:', newStats);
+      setLocalStats(newStats);
     } catch (error) {
       console.error('❌ Error calculando estadísticas:', error);
+      // Establecer valores por defecto en caso de error
+      setLocalStats({
+        totalPasswords: 0,
+        lastModified: 'Error',
+        strongPasswords: 0,
+        moderatePasswords: 0,
+        weakPasswords: 0
+      });
     } finally {
       setLoading(false);
     }

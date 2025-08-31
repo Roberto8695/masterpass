@@ -34,6 +34,11 @@ export function useDatabase() {
   const [stats, setStats] = useState<DatabaseStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Debug: Log cuando passwords cambia
+  useEffect(() => {
+    console.log('🔄 Hook useDatabase - passwords actualizado:', passwords.length, 'contraseñas');
+  }, [passwords]);
+
   // Inicializar base de datos y migración
   const initialize = useCallback(async () => {
     try {
@@ -73,12 +78,17 @@ export function useDatabase() {
 
   // Cargar todas las contraseñas
   const loadPasswords = useCallback(async () => {
-    if (!isReady) return;
+    if (!isReady) {
+      console.log('⏳ Base de datos no está lista para cargar contraseñas');
+      return;
+    }
 
     try {
+      console.log('🔄 Cargando contraseñas desde la base de datos...');
       const loadedPasswords = await databaseService.loadPasswords();
-      setPasswords(loadedPasswords);
       console.log(`📦 Cargadas ${loadedPasswords.length} contraseñas de la BD`);
+      console.log('� Primeras 3 contraseñas:', loadedPasswords.slice(0, 3).map(p => ({ id: p.id, siteName: p.siteName })));
+      setPasswords(loadedPasswords);
     } catch (error) {
       console.error('❌ Error cargando contraseñas:', error);
       setError(`Error cargando contraseñas: ${error}`);

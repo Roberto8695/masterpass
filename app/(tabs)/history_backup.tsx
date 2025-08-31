@@ -1,165 +1,77 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, TouchableOpacity, Alert, ScrollView, Clipboard, RefreshControl, DeviceEventEmitter, FlatList } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Alert, ScrollView, RefreshControl, DeviceEventEmitter } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { Text, View } from '@/components/Themed';
-import { useDatabase, DatabasePassword } from '@/hooks/useDatabase';
-import { PasswordOptions } from '@/services/DatabaseService';
-import SecurityStats from '@/components/SecurityStats';
-import AccountCard from '@/components/AccountCard';
-import AccountSearchAndFilter from '@/components/AccountSearchAndFilter';
-import AddPasswordForm from '@/components/AddPasswordForm';
+import { useDatabase } from '../../hooks/useDatabase';
+import SecurityStats from '../../components/SecurityStats';
 
-export default function PasswordHistoryScreen() {
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [filteredPasswords, setFilteredPasswords] = useState<DatabasePassword[]>([]);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  
+export default function BackupScreen() {
   const { 
-    isReady: isDatabaseReady,
-    isLoading: isDatabaseLoading,
-    passwords: passwordHistory,
-    deletePassword,
-    clearAll,
+    passwords,
     loadPasswords,
     exportData,
-    markAsUsed,
-    error: databaseError 
+    clearAll,
+    isReady
   } = useDatabase();
 
-  // Inicializar contraseñas filtradas cuando cambie el historial
-  useEffect(() => {
-    setFilteredPasswords(passwordHistory);
-  }, [passwordHistory]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Mostrar error si existe
+  // Cargar datos cuando la pantalla se monte
   useEffect(() => {
-    if (databaseError) {
-      Alert.alert('Error de Base de Datos', databaseError);
+    if (isReady) {
+      loadPasswords();
     }
-  }, [databaseError]);
+  }, [isReady, loadPasswords]);
 
-  // Suscribirse a eventos de actualización del historial
+  // Escuchar eventos de actualización
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
       'passwordHistoryUpdated',
       () => {
-        loadPasswords(); // Recargar desde la base de datos
+        if (isReady) {
+          loadPasswords();
+        }
       }
     );
 
-    // Cleanup: remover el listener cuando el componente se desmonte
     return () => {
       subscription.remove();
     };
-  }, []);
-
-  // Recargar historial cuando la pestaña se enfoque
-  useFocusEffect(
-    useCallback(() => {
-      if (isDatabaseReady) {
-        loadPasswords();
-      }
-    }, [isDatabaseReady, loadPasswords])
-  );
+  }, [isReady, loadPasswords]);
 
   const onRefresh = async () => {
-    if (!isDatabaseReady) {
-      return;
-    }
-
-    try {
-      setIsRefreshing(true);
-      await loadPasswords();
-      console.log('✅ Historial actualizado desde base de datos');
-    } catch (error) {
-      console.error('❌ Error actualizando historial:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
+    setIsRefreshing(true);
+    await loadPasswords();
+    setIsRefreshing(false);
   };
 
-  const copyToClipboard = (password: string) => {
-    Clipboard.setString(password);
-    Alert.alert('¡Copiado!', 'Contraseña copiada al portapapeles');
-  };
-
-  const exportPasswords = async () => {
-    if (!isDatabaseReady) {
-      Alert.alert('Error', 'La base de datos no está lista');
-      return;
-    }
-
-    try {
-      const exportString = await exportData();
-      
-      if (exportString) {
-        // Copiar al portapapeles
-        Clipboard.setString(exportString);
-        Alert.alert(
-          'Exportación Exitosa', 
-          'Los datos han sido copiados al portapapeles en formato JSON.\n\nGuarda este texto en un lugar seguro como backup.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert('Error', 'No se pudieron exportar los datos');
-      }
-    } catch (error) {
-      console.error('❌ Error exportando datos:', error);
-      Alert.alert('Error', 'No se pudieron exportar los datos');
-    }
-  };
-
-  const deletePasswordFromHistory = async (id: string) => {
-    if (!isDatabaseReady) {
-      Alert.alert('Error', 'La base de datos no está lista');
-      return;
-    }
-
-    try {
-      const success = await deletePassword(id);
-      
-      if (success) {
-        Alert.alert('Eliminado', 'Contraseña eliminada del historial de forma segura');
-      } else {
-        Alert.alert('Error', 'No se pudo eliminar la contraseña');
-      }
-    } catch (error) {
-      console.error('❌ Error eliminando contraseña:', error);
-      Alert.alert('Error', 'No se pudo eliminar la contraseña de forma segura');
-    }
-  };
-
-  const clearAllHistory = async () => {
-    if (!isDatabaseReady) {
-      Alert.alert('Error', 'La base de datos no está lista');
+  const handleExportData = async () => {
+    if (passwords.length === 0) {
+      Alert.alert('Sin datos', 'No hay cuentas para exportar');
       return;
     }
 
     Alert.alert(
-      'Limpiar Historial',
-      '¿Estás seguro de que quieres eliminar todo el historial de contraseñas? Esta acción no se puede deshacer.',
+      'Exportar Datos',
+      'Esta función exportará todas tus cuentas en formato JSON encriptado. ¿Continuar?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
+        { 
+          text: 'Exportar', 
           onPress: async () => {
+            setIsExporting(true);
             try {
-              const success = await clearAll();
-              
-              if (success) {
-                // Emitir evento para mantener sincronizado el historial
-                DeviceEventEmitter.emit('passwordHistoryUpdated');
-                Alert.alert('Historial eliminado', 'El historial se ha limpiado de forma segura');
+              const exportResult = await exportData();
+              if (exportResult) {
+                Alert.alert('Éxito', 'Datos exportados correctamente');
               } else {
-                Alert.alert('Error', 'No se pudo limpiar el historial');
+                Alert.alert('Error', 'No se pudieron exportar los datos');
               }
             } catch (error) {
-              console.error('❌ Error limpiando historial de forma segura:', error);
-              Alert.alert('Error', 'No se pudo limpiar el historial de forma segura');
+              Alert.alert('Error', 'Error durante la exportación');
+            } finally {
+              setIsExporting(false);
             }
           }
         }
@@ -167,126 +79,145 @@ export default function PasswordHistoryScreen() {
     );
   };
 
-  const getPasswordStrength = (options: PasswordOptions) => {
-    let strength = 0;
-    
-    // Adaptar a la nueva estructura de opciones de la base de datos
-    if (options.includeNumbers) strength++;
-    if (options.includeSymbols) strength++;
-    if (options.length >= 12) strength++;
-    if (options.length >= 16) strength++;
-    
-    if (options.length >= 16 && strength >= 3) return { level: 'Muy Fuerte', color: '#4CAF50' };
-    if (options.length >= 12 && strength >= 3) return { level: 'Fuerte', color: '#8BC34A' };
-    if (options.length >= 8 && strength >= 2) return { level: 'Media', color: '#FF9800' };
-    return { level: 'Débil', color: '#F44336' };
+  const handleClearAllData = () => {
+    if (passwords.length === 0) {
+      Alert.alert('Sin datos', 'No hay datos para eliminar');
+      return;
+    }
+
+    Alert.alert(
+      '⚠️ Eliminar TODO',
+      `¿Estás SEGURO de que quieres eliminar TODAS las ${passwords.length} cuentas guardadas?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'SÍ, ELIMINAR TODO', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearAll();
+              Alert.alert('Eliminado', 'Todos los datos han sido eliminados');
+            } catch (error) {
+              Alert.alert('Error', 'No se pudieron eliminar los datos');
+            }
+          }
+        }
+      ]
+    );
   };
 
+  const totalAccounts = passwords.length;
+  const categoryCounts = passwords.reduce((acc, password) => {
+    acc[password.category] = (acc[password.category] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   return (
-    <>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="key" size={40} color="#007AFF" />
-            <View>
-              <Text style={styles.title}>Mis Cuentas</Text>
-              <Text style={styles.subtitle}>
-                {filteredPasswords.length} de {passwordHistory.length} cuenta{passwordHistory.length !== 1 ? 's' : ''}
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => setShowSearch(true)} style={styles.headerButton}>
-              <Ionicons name="search" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={() => setShowAddForm(true)} style={styles.headerButton}>
-              <Ionicons name="add" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            {passwordHistory.length > 0 && (
-              <TouchableOpacity onPress={exportPasswords} style={styles.headerButton}>
-                <Ionicons name="download-outline" size={24} color="#007AFF" />
-              </TouchableOpacity>
-            )}
+    <ScrollView 
+      style={styles.container}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
+    >
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Ionicons name="cloud-outline" size={40} color="#007AFF" />
+          <View>
+            <Text style={styles.title}>Respaldo y Datos</Text>
+            <Text style={styles.subtitle}>Gestiona tu información de forma segura</Text>
           </View>
         </View>
-
-        <SecurityStats />
-
-        {isDatabaseLoading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Cargando cuentas...</Text>
-          </View>
-        ) : filteredPasswords.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="folder-open-outline" size={80} color="#ccc" />
-            <Text style={styles.emptyTitle}>
-              {passwordHistory.length === 0 ? 'No hay cuentas guardadas' : 'No se encontraron cuentas'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {passwordHistory.length === 0 
-                ? 'Agrega tu primera cuenta tocando el botón +'
-                : 'Intenta ajustar los filtros de búsqueda'
-              }
-            </Text>
-            {passwordHistory.length === 0 && (
-              <TouchableOpacity 
-                style={styles.addFirstButton}
-                onPress={() => setShowAddForm(true)}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.addFirstButtonText}>Agregar Primera Cuenta</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <FlatList
-            data={filteredPasswords}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <AccountCard
-                account={item}
-                onDelete={deletePasswordFromHistory}
-                onMarkAsUsed={markAsUsed}
-              />
-            )}
-            style={styles.accountsList}
-            contentContainerStyle={styles.accountsListContent}
-            refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
-            }
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-
-        {passwordHistory.length > 0 && (
-          <View style={styles.bottomActions}>
-            <TouchableOpacity style={styles.clearAllButton} onPress={clearAllHistory}>
-              <Ionicons name="trash" size={20} color="#FF3B30" />
-              <Text style={styles.clearAllText}>Eliminar Todas</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
-      {/* Modales */}
-      <AccountSearchAndFilter
-        visible={showSearch}
-        onClose={() => setShowSearch(false)}
-        accounts={passwordHistory}
-        onFilteredAccountsChange={setFilteredPasswords}
-      />
+      <SecurityStats />
 
-      <AddPasswordForm
-        visible={showAddForm}
-        onClose={() => setShowAddForm(false)}
-        onPasswordAdded={() => {
-          Alert.alert('Cuenta Agregada', 'La nueva cuenta ha sido guardada de forma segura.');
-        }}
-      />
-    </>
+      {/* Estadísticas rápidas */}
+      <View style={styles.statsCard}>
+        <View style={styles.statsHeader}>
+          <Ionicons name="bar-chart-outline" size={24} color="#007AFF" />
+          <Text style={styles.statsTitle}>Resumen de Datos</Text>
+        </View>
+        
+        <View style={styles.statsGrid}>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{totalAccounts}</Text>
+            <Text style={styles.statLabel}>Cuentas totales</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{Object.keys(categoryCounts).length}</Text>
+            <Text style={styles.statLabel}>Categorías</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{passwords.filter(p => p.lastUsed).length}</Text>
+            <Text style={styles.statLabel}>Usadas</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Acciones de respaldo */}
+      <View style={styles.actionsCard}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="shield-checkmark-outline" size={24} color="#4CAF50" />
+          <Text style={styles.cardTitle}>Acciones de Respaldo</Text>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.exportButton]}
+          onPress={handleExportData}
+          disabled={isExporting || totalAccounts === 0}
+        >
+          <Ionicons 
+            name={isExporting ? "hourglass-outline" : "download-outline"} 
+            size={20} 
+            color={totalAccounts === 0 ? "#999" : "#4CAF50"} 
+          />
+          <View style={styles.actionTextContainer}>
+            <Text style={[styles.actionButtonText, totalAccounts === 0 && styles.disabledText]}>
+              {isExporting ? 'Exportando...' : 'Exportar Datos'}
+            </Text>
+            <Text style={[styles.actionSubtext, totalAccounts === 0 && styles.disabledText]}>
+              Crear respaldo seguro de {totalAccounts} cuentas
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Zona de peligro */}
+      <View style={styles.dangerCard}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="warning-outline" size={24} color="#FF3B30" />
+          <Text style={[styles.cardTitle, styles.dangerTitle]}>Zona de Peligro</Text>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.dangerButton]}
+          onPress={handleClearAllData}
+          disabled={totalAccounts === 0}
+        >
+          <Ionicons 
+            name="trash-outline" 
+            size={20} 
+            color={totalAccounts === 0 ? "#999" : "#FF3B30"} 
+          />
+          <View style={styles.actionTextContainer}>
+            <Text style={[styles.dangerButtonText, totalAccounts === 0 && styles.disabledText]}>
+              Eliminar Todos los Datos
+            </Text>
+            <Text style={[styles.actionSubtext, totalAccounts === 0 && styles.disabledText]}>
+              ⚠️ Esta acción no se puede deshacer
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {totalAccounts === 0 && (
+        <View style={styles.emptyState}>
+          <Ionicons name="folder-open-outline" size={60} color="#ccc" />
+          <Text style={styles.emptyTitle}>No hay datos para respaldar</Text>
+          <Text style={styles.emptySubtext}>
+            Agrega algunas cuentas primero en la pestaña "Mis Cuentas"
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
@@ -295,216 +226,168 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
-  contentContainer: {
-    padding: 20,
-    paddingBottom: 40,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 30,
-    backgroundColor: 'transparent',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e5e9',
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerButton: {
-    padding: 8,
-    marginLeft: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 122, 255, 0.1)',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  accountsList: {
-    flex: 1,
-  },
-  accountsListContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  addFirstButton: {
-    backgroundColor: '#007AFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    marginTop: 20,
-  },
-  addFirstButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  bottomActions: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#e1e8ed',
-    backgroundColor: 'white',
-  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginLeft: 15,
-    color: '#333',
+    color: '#1a1a1a',
+    marginLeft: 12,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
-    marginTop: 5,
-    marginLeft: 15,
+    marginLeft: 12,
+    marginTop: 2,
   },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-    backgroundColor: 'transparent',
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 20,
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 10,
-    paddingHorizontal: 40,
-    lineHeight: 22,
-  },
-  clearAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffebee',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#ffcdd2',
-  },
-  clearAllText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  historyItem: {
+  statsCard: {
     backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginVertical: 10,
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  historyItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    backgroundColor: 'transparent',
-  },
-  dateContainer: {
+  statsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'transparent',
+    marginBottom: 15,
   },
-  historyDate: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 6,
-  },
-  deleteButton: {
-    padding: 4,
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  passwordText: {
-    flex: 1,
-    fontSize: 16,
-    fontFamily: 'monospace',
-    color: '#333',
-    letterSpacing: 1,
-  },
-  copyButton: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  passwordInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    backgroundColor: 'transparent',
-  },
-  lengthInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 6,
-  },
-  strengthBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  strengthText: {
-    color: 'white',
-    fontSize: 12,
+  statsTitle: {
+    fontSize: 18,
     fontWeight: '600',
+    marginLeft: 10,
+    color: '#333',
   },
-  optionsInfo: {
+  statsGrid: {
     flexDirection: 'row',
-    backgroundColor: 'transparent',
+    justifyContent: 'space-around',
   },
-  optionChip: {
-    backgroundColor: '#e3f2fd',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#bbdefb',
+  statItem: {
+    alignItems: 'center',
   },
-  optionText: {
+  statNumber: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  statLabel: {
     fontSize: 12,
-    color: '#1976d2',
-    fontWeight: '500',
+    color: '#666',
+    marginTop: 4,
+  },
+  actionsCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dangerCard: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#ffebee',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginLeft: 10,
+    color: '#333',
+  },
+  dangerTitle: {
+    color: '#FF3B30',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+  },
+  exportButton: {
+    backgroundColor: '#f0f9ff',
+    borderColor: '#4CAF50',
+  },
+  dangerButton: {
+    backgroundColor: '#fff5f5',
+    borderColor: '#FF3B30',
+  },
+  actionTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  dangerButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF3B30',
+  },
+  actionSubtext: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  disabledText: {
+    color: '#999',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#666',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

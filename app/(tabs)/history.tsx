@@ -1,62 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, Alert, RefreshControl, Clipboard } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Alert, RefreshControl, DeviceEventEmitter } from 'react-native';
 import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useDatabase } from '../../hooks/useDatabase';
-import { DatabasePassword } from '../../hooks/useDatabase';
-import SecurityStats from '../../components/SecurityStats';
-import AddPasswordForm from '../../components/AddPasswordForm';
-import AccountCard from '../../components/AccountCard';
-import AccountSearchAndFilter from '../../components/AccountSearchAndFilter';
+import { useDatabase, DatabasePassword } from '../../hooks/useDatabase';
 
 export default function HistoryScreen() {
   const { 
-    passwords,
+    passwords, 
+    loadPasswords, 
     deletePassword,
-    clearAll,
-    markAsUsed,
-    isLoading,
-    loadPasswords 
+    isReady 
   } = useDatabase();
 
-  const [filteredPasswords, setFilteredPasswords] = useState<DatabasePassword[]>([]);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'usage' | 'strength'>('date');
 
+  // Cargar datos cuando la pantalla se monte
   useEffect(() => {
-    setFilteredPasswords(passwords);
-  }, [passwords]);
+    if (isReady) {
+      loadPasswords();
+    }
+  }, [isReady, loadPasswords]);
 
-  const copyToClipboard = async (text: string) => {
-    Clipboard.setString(text);
-    Alert.alert('¡Copiado!', 'Contraseña copiada al portapapeles');
-  };
-
-  const clearAllHistory = () => {
-    if (passwords.length === 0) return;
-    
-    Alert.alert(
-      'Confirmar eliminación',
-      '¿Estás seguro de que quieres eliminar todas las cuentas? Esta acción no se puede deshacer.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Eliminar Todo', 
-          style: 'destructive',
-          onPress: () => {
-            clearAll();
-            Alert.alert('Eliminado', 'Todas las cuentas han sido eliminadas.');
-          }
+  // Escuchar eventos de actualización
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      'passwordHistoryUpdated',
+      () => {
+        if (isReady) {
+          loadPasswords();
         }
-      ]
+      }
     );
-  };
 
-  const handleMarkAsUsed = async (id: string) => {
-    await markAsUsed(id);
-    Alert.alert('Marcado', 'Contraseña marcada como usada');
-  };
+    return () => {
+      subscription.remove();
+    };
+  }, [isReady, loadPasswords]);
 
   const onRefresh = async () => {
     setIsRefreshing(true);
@@ -64,115 +44,238 @@ export default function HistoryScreen() {
     setIsRefreshing(false);
   };
 
-  const exportPasswords = () => {
-    Alert.alert('Exportar', 'Funcionalidad de exportación próximamente');
+  const handleDeletePassword = (id: string, siteName: string) => {
+    Alert.alert(
+      'Eliminar Cuenta',
+      `¿Estás seguro de que quieres eliminar la cuenta de ${siteName}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Eliminar', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deletePassword(id);
+              Alert.alert('Eliminado', 'Cuenta eliminada correctamente');
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo eliminar la cuenta');
+            }
+          }
+        }
+      ]
+    );
   };
 
-  return (
-    <>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="key" size={40} color="#007AFF" />
-            <View>
-              <Text style={styles.title}>Mis Cuentas</Text>
-              <Text style={styles.subtitle}>
-                {filteredPasswords.length} de {passwords.length} cuenta{passwords.length !== 1 ? 's' : ''}
+  const calculatePasswordStrength = (password: string): number => {
+    let score = 0;
+    
+    // Longitud
+    if (password.length >= 8) score += 25;
+    if (password.length >= 12) score += 15;
+    
+    // Mayúsculas
+    if (/[A-Z]/.test(password)) score += 15;
+    
+    // Minúsculas
+    if (/[a-z]/.test(password)) score += 15;
+    
+    // Números
+    if (/\d/.test(password)) score += 15;
+    
+    // Símbolos
+    if (/[^A-Za-z0-9]/.test(password)) score += 15;
+    
+    return Math.min(score, 100);
+  };
+
+  const getSortedPasswords = () => {
+    const sorted = [...passwords];
+    switch (sortBy) {
+      case 'date':
+        return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      case 'usage':
+        return sorted.sort((a, b) => {
+          const aUsed = a.lastUsed ? 1 : 0;
+          const bUsed = b.lastUsed ? 1 : 0;
+          return bUsed - aUsed;
+        });
+      case 'strength':
+        return sorted.sort((a, b) => {
+          const aStrength = calculatePasswordStrength(a.password);
+          const bStrength = calculatePasswordStrength(b.password);
+          return bStrength - aStrength;
+        });
+      default:
+        return sorted;
+    }
+  };
+
+  const getStrengthColor = (strength: number) => {
+    if (strength >= 80) return '#4CAF50';
+    if (strength >= 60) return '#FF9800';
+    return '#F44336';
+  };
+
+  const getStrengthText = (strength: number) => {
+    if (strength >= 80) return 'Fuerte';
+    if (strength >= 60) return 'Media';
+    return 'Débil';
+  };
+
+  const formatDate = (date: Date) => {
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays < 7) return `Hace ${diffDays} días`;
+    if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} semanas`;
+    return date.toLocaleDateString('es-ES');
+  };
+
+  const getCategoryIcon = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'social': return 'people-outline';
+      case 'work': return 'briefcase-outline';
+      case 'banking': return 'card-outline';
+      case 'shopping': return 'storefront-outline';
+      case 'entertainment': return 'game-controller-outline';
+      case 'email': return 'mail-outline';
+      default: return 'globe-outline';
+    }
+  };
+
+  const renderPasswordItem = ({ item }: { item: DatabasePassword }) => {
+    const strength = calculatePasswordStrength(item.password);
+    
+    return (
+      <View style={styles.passwordItem}>
+        <View style={styles.itemHeader}>
+          <View style={styles.itemLeft}>
+            <View style={[styles.iconContainer, { backgroundColor: getStrengthColor(strength) + '20' }]}>
+              <Ionicons 
+                name={getCategoryIcon(item.category)} 
+                size={24} 
+                color={getStrengthColor(strength)} 
+              />
+            </View>
+            <View style={styles.itemInfo}>
+              <Text style={styles.website} numberOfLines={1}>{item.siteName}</Text>
+              <Text style={styles.username} numberOfLines={1}>
+                {item.username || item.email || 'Sin usuario'}
               </Text>
+              <View style={styles.metadata}>
+                <Text style={styles.metadataText}>
+                  {formatDate(item.createdAt)}
+                </Text>
+                {item.lastUsed && (
+                  <>
+                    <Text style={styles.metadataSeparator}>•</Text>
+                    <Text style={styles.metadataText}>
+                      Usada el {formatDate(item.lastUsed)}
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
           </View>
-          
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => setShowSearch(true)} style={styles.headerButton}>
-              <Ionicons name="search" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={() => setShowAddForm(true)} style={styles.headerButton}>
-              <Ionicons name="add" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            {passwords.length > 0 && (
-              <TouchableOpacity onPress={exportPasswords} style={styles.headerButton}>
-                <Ionicons name="download-outline" size={24} color="#007AFF" />
-              </TouchableOpacity>
-            )}
+          <TouchableOpacity
+            onPress={() => handleDeletePassword(item.id, item.siteName)}
+            style={styles.deleteButton}
+          >
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.strengthContainer}>
+          <View style={styles.strengthBar}>
+            <View 
+              style={[
+                styles.strengthFill, 
+                { 
+                  width: `${strength}%`,
+                  backgroundColor: getStrengthColor(strength)
+                }
+              ]} 
+            />
+          </View>
+          <Text style={[styles.strengthText, { color: getStrengthColor(strength) }]}>
+            {getStrengthText(strength)}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const sortedPasswords = getSortedPasswords();
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Ionicons name="time-outline" size={40} color="#007AFF" />
+          <View>
+            <Text style={styles.title}>Historial</Text>
+            <Text style={styles.subtitle}>{sortedPasswords.length} cuentas guardadas</Text>
           </View>
         </View>
-
-        <SecurityStats />
-
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Cargando cuentas...</Text>
-          </View>
-        ) : filteredPasswords.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="folder-open-outline" size={80} color="#ccc" />
-            <Text style={styles.emptyTitle}>
-              {passwords.length === 0 ? 'No hay cuentas guardadas' : 'No se encontraron cuentas'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {passwords.length === 0 
-                ? 'Agrega tu primera cuenta tocando el botón +'
-                : 'Intenta ajustar los filtros de búsqueda'
-              }
-            </Text>
-            {passwords.length === 0 && (
-              <TouchableOpacity 
-                style={styles.addFirstButton}
-                onPress={() => setShowAddForm(true)}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.addFirstButtonText}>Agregar Primera Cuenta</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <FlatList
-            data={filteredPasswords}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <AccountCard
-                account={item}
-                onDelete={deletePassword}
-                onMarkAsUsed={handleMarkAsUsed}
-              />
-            )}
-            style={styles.accountsList}
-            contentContainerStyle={styles.accountsListContent}
-            refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
-            }
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-
-        {passwords.length > 0 && (
-          <View style={styles.bottomActions}>
-            <TouchableOpacity style={styles.clearAllButton} onPress={clearAllHistory}>
-              <Ionicons name="trash" size={20} color="#FF3B30" />
-              <Text style={styles.clearAllText}>Eliminar Todas</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
-      {/* Modales */}
-      <AccountSearchAndFilter
-        visible={showSearch}
-        onClose={() => setShowSearch(false)}
-        accounts={passwords}
-        onFilteredAccountsChange={setFilteredPasswords}
-      />
+      {/* Opciones de ordenamiento */}
+      <View style={styles.sortContainer}>
+        <Text style={styles.sortLabel}>Ordenar por:</Text>
+        <View style={styles.sortButtons}>
+          {[
+            { key: 'date', label: 'Fecha', icon: 'calendar-outline' },
+            { key: 'usage', label: 'Uso', icon: 'stats-chart-outline' },
+            { key: 'strength', label: 'Seguridad', icon: 'shield-outline' }
+          ].map((option) => (
+            <TouchableOpacity
+              key={option.key}
+              style={[
+                styles.sortButton,
+                sortBy === option.key && styles.sortButtonActive
+              ]}
+              onPress={() => setSortBy(option.key as 'date' | 'usage' | 'strength')}
+            >
+              <Ionicons 
+                name={option.icon as any} 
+                size={16} 
+                color={sortBy === option.key ? '#007AFF' : '#666'} 
+              />
+              <Text style={[
+                styles.sortButtonText,
+                sortBy === option.key && styles.sortButtonTextActive
+              ]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
-      <AddPasswordForm
-        visible={showAddForm}
-        onClose={() => setShowAddForm(false)}
-        onPasswordAdded={() => {
-          Alert.alert('Cuenta Agregada', 'La nueva cuenta ha sido guardada de forma segura.');
-        }}
-      />
-    </>
+      {sortedPasswords.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="time-outline" size={80} color="#ccc" />
+          <Text style={styles.emptyTitle}>Sin historial aún</Text>
+          <Text style={styles.emptySubtext}>
+            Las cuentas que crees aparecerán aquí
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sortedPasswords}
+          renderItem={renderPasswordItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+          }
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+    </View>
   );
 }
 
@@ -209,96 +312,152 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     marginTop: 2,
   },
-  headerActions: {
+  sortContainer: {
+    backgroundColor: 'white',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1e5e9',
+  },
+  sortLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  sortButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e1e5e9',
   },
-  headerButton: {
+  sortButtonActive: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#007AFF',
+  },
+  sortButtonText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 6,
+  },
+  sortButtonTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  listContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 15,
+  },
+  passwordItem: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  itemLeft: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  website: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  username: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+  metadata: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metadataText: {
+    fontSize: 12,
+    color: '#999',
+  },
+  metadataSeparator: {
+    fontSize: 12,
+    color: '#999',
+    marginHorizontal: 6,
+  },
+  deleteButton: {
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#f0f7ff',
+    backgroundColor: '#fff5f5',
   },
-  loadingContainer: {
+  strengthContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  strengthBar: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 2,
+    marginRight: 12,
+  },
+  strengthFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  strengthText: {
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  emptyState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
+    paddingHorizontal: 40,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#666',
-    marginTop: 16,
+    marginTop: 20,
     textAlign: 'center',
   },
-  emptySubtitle: {
+  emptySubtext: {
     fontSize: 16,
     color: '#999',
     marginTop: 8,
     textAlign: 'center',
-    lineHeight: 22,
-  },
-  addFirstButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginTop: 20,
-    gap: 8,
-  },
-  addFirstButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  accountsList: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  accountsListContent: {
-    paddingTop: 20,
-    paddingBottom: 100,
-  },
-  bottomActions: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#e1e5e9',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  clearAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff5f5',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#fed7d7',
-    gap: 8,
-  },
-  clearAllText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '500',
+    lineHeight: 24,
   },
 });

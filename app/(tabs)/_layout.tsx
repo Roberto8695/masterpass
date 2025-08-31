@@ -29,7 +29,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'MasterPass',
+          title: 'Generador',
           tabBarIcon: ({ color }) => <TabBarIcon name="lock" color={color} />,
           headerRight: () => (
             <Link href="/modal" asChild>
@@ -45,6 +45,20 @@ export default function TabLayout() {
               </Pressable>
             </Link>
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="history_new"
+        options={{
+          title: 'Mis Cuentas',
+          tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="history_backup"
+        options={{
+          title: 'Respaldo',
+          tabBarIcon: ({ color }) => <TabBarIcon name="cloud" color={color} />,
         }}
       />
       <Tabs.Screen

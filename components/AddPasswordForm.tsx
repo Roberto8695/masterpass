@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -68,6 +68,16 @@ export default function AddPasswordForm({
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   const { savePassword, isReady } = useDatabase();
+
+  // Actualizar la contraseña cuando cambie initialPassword
+  useEffect(() => {
+    if (initialPassword) {
+      setFormData(prev => ({
+        ...prev,
+        password: initialPassword
+      }));
+    }
+  }, [initialPassword]);
 
   const resetForm = () => {
     setFormData({

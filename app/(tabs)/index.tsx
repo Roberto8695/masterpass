@@ -122,8 +122,24 @@ export default function PasswordGeneratorScreen() {
     }
 
     setPassword(result);
-    // Guardar en el historial
+    
+    // Guardar automáticamente en el historial (AsyncStorage para compatibilidad)
     savePasswordToHistory(result);
+    
+    // Preguntar si quiere guardar como cuenta específica
+    setTimeout(() => {
+      Alert.alert(
+        '¿Guardar como cuenta?',
+        '¿Te gustaría guardar esta contraseña para un sitio web o aplicación específica?',
+        [
+          { text: 'No, gracias', style: 'cancel' },
+          { 
+            text: 'Sí, guardar',
+            onPress: () => setShowAddForm(true)
+          }
+        ]
+      );
+    }, 500);
   };
 
   const copyToClipboard = () => {
