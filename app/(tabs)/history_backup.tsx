@@ -3,13 +3,14 @@ import { View, Text, TouchableOpacity, Alert, ScrollView, RefreshControl, Device
 import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDatabase } from '../../hooks/useDatabase';
-import SecurityStats from '../../components/SecurityStats';
 
 export default function BackupScreen() {
   const { 
     passwords,
     loadPasswords,
     exportData,
+    exportToFile,
+    exportToCSV,
     clearAll,
     isReady
   } = useDatabase();
@@ -54,29 +55,52 @@ export default function BackupScreen() {
 
     Alert.alert(
       'Exportar Datos',
-      'Esta función exportará todas tus cuentas en formato JSON encriptado. ¿Continuar?',
+      `Selecciona el formato de exportación para tus ${passwords.length} cuentas:\n\n� JSON: Formato completo con metadatos\n� CSV: Compatible con Excel y hojas de cálculo`,
       [
         { text: 'Cancelar', style: 'cancel' },
         { 
-          text: 'Exportar', 
-          onPress: async () => {
-            setIsExporting(true);
-            try {
-              const exportResult = await exportData();
-              if (exportResult) {
-                Alert.alert('Éxito', 'Datos exportados correctamente');
-              } else {
-                Alert.alert('Error', 'No se pudieron exportar los datos');
-              }
-            } catch (error) {
-              Alert.alert('Error', 'Error durante la exportación');
-            } finally {
-              setIsExporting(false);
-            }
-          }
+          text: '📊 Exportar CSV', 
+          onPress: () => performExport('csv')
+        },
+        { 
+          text: '📄 Exportar JSON', 
+          onPress: () => performExport('json')
         }
       ]
     );
+  };
+
+  const performExport = async (format: 'json' | 'csv') => {
+    setIsExporting(true);
+    try {
+      const result = format === 'csv' 
+        ? await exportToCSV() 
+        : await exportToFile();
+
+      if (result.success) {
+        const formatName = format === 'csv' ? 'CSV' : 'JSON';
+        Alert.alert(
+          `✅ Exportación ${formatName} Exitosa`, 
+          `Archivo creado: ${result.fileName}\n\n📁 Ubicación: Documentos del dispositivo\n📊 Total exportadas: ${passwords.length} cuentas\n\n${result.filePath ? `💡 El archivo se abrió automáticamente para compartir` : '💡 Puedes encontrar el archivo en tu gestor de archivos'}`,
+          [{ text: 'Entendido' }]
+        );
+      } else {
+        const formatName = format === 'csv' ? 'CSV' : 'JSON';
+        Alert.alert(
+          `Error de Exportación ${formatName}`, 
+          result.error || `No se pudo crear el archivo ${formatName}`,
+          [{ text: 'Entendido' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error', 
+        'Error inesperado durante la exportación. Inténtalo de nuevo.',
+        [{ text: 'Entendido' }]
+      );
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleClearAllData = () => {
@@ -126,8 +150,6 @@ export default function BackupScreen() {
           </View>
         </View>
       </View>
-
-      <SecurityStats />
 
       {/* Estadísticas rápidas */}
       <View style={styles.statsCard}>

@@ -1,4 +1,6 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { encryptionService } from './EncryptionService';
 
 // Interfaces para los tipos de datos
@@ -206,6 +208,114 @@ export class DatabaseService {
     } catch (error) {
       console.error('❌ Error guardando contraseña en BD:', error);
       throw new Error('No se pudo guardar la contraseña en la base de datos');
+    }
+  }
+
+  /**
+   * Actualizar una contraseña existente
+   */
+  async updatePassword(
+    id: string,
+    password?: string,
+    options?: PasswordOptions,
+    siteName?: string,
+    additionalData?: {
+      siteUrl?: string;
+      username?: string;
+      email?: string;
+      category?: string;
+      tags?: string[];
+      notes?: string;
+    }
+  ): Promise<void> {
+    if (!this.isReady()) {
+      throw new Error('Base de datos no inicializada');
+    }
+
+    try {
+      const now = Date.now();
+
+      // Construir la consulta y parámetros dinámicamente
+      const updateFields: string[] = [];
+      const params: any[] = [];
+
+      // Solo actualizar campos que se proporcionen
+      if (password !== undefined) {
+        const encryptedPassword = await encryptionService.encrypt(password);
+        const encryptedPasswordStr = JSON.stringify(encryptedPassword);
+        updateFields.push('password = ?');
+        params.push(encryptedPasswordStr);
+      }
+
+      if (options !== undefined) {
+        const encryptedOptions = await encryptionService.encrypt(JSON.stringify(options));
+        const encryptedOptionsStr = JSON.stringify(encryptedOptions);
+        updateFields.push('options = ?');
+        params.push(encryptedOptionsStr);
+      }
+
+      if (siteName !== undefined) {
+        updateFields.push('siteName = ?');
+        params.push(siteName);
+      }
+
+      if (additionalData?.siteUrl !== undefined) {
+        updateFields.push('siteUrl = ?');
+        params.push(additionalData.siteUrl || null);
+      }
+
+      if (additionalData?.username !== undefined) {
+        updateFields.push('username = ?');
+        params.push(additionalData.username || null);
+      }
+
+      if (additionalData?.email !== undefined) {
+        updateFields.push('email = ?');
+        params.push(additionalData.email || null);
+      }
+
+      if (additionalData?.category !== undefined) {
+        updateFields.push('category = ?');
+        params.push(additionalData.category);
+      }
+
+      if (additionalData?.tags !== undefined) {
+        updateFields.push('tags = ?');
+        params.push(JSON.stringify(additionalData.tags));
+      }
+
+      if (additionalData?.notes !== undefined) {
+        updateFields.push('notes = ?');
+        params.push(additionalData.notes || null);
+      }
+
+      // Siempre actualizar lastModified
+      updateFields.push('lastModified = ?');
+      params.push(now);
+
+      // Agregar ID al final para la cláusula WHERE
+      params.push(id);
+
+      if (updateFields.length === 1) { // Solo lastModified
+        throw new Error('No se proporcionaron campos para actualizar');
+      }
+
+      const updateQuery = `
+        UPDATE passwords 
+        SET ${updateFields.join(', ')}
+        WHERE id = ? AND isDeleted = 0
+      `;
+
+      const result = await this.db!.runAsync(updateQuery, params);
+      
+      if (result.changes === 0) {
+        throw new Error('No se encontró la contraseña para actualizar');
+      }
+      
+      console.log(`✅ Contraseña actualizada en BD: ${id}`);
+    } catch (error) {
+      console.error('❌ Error actualizando contraseña en BD:', error);
+      throw new Error('No se pudo actualizar la contraseña en la base de datos');
     }
   }
 
@@ -436,7 +546,228 @@ export class DatabaseService {
   }
 
   /**
-   * Exportar todas las contraseñas (para backup)
+   * Exportar todas las contraseñas a un archivo CSV
+   */
+  async exportToCSV(): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string }> {
+    if (!this.isReady()) {
+      return { success: false, error: 'Base de datos no inicializada' };
+    }
+
+    try {
+      const passwords = await this.loadPasswords();
+      
+      if (passwords.length === 0) {
+        return { success: false, error: 'No hay contraseñas para exportar' };
+      }
+
+      // Crear encabezados CSV
+      const headers = [
+        'Sitio',
+        'URL',
+        'Usuario',
+        'Email', 
+        'Contraseña',
+        'Categoría',
+        'Etiquetas',
+        'Notas',
+        'Fecha Creación',
+        'Última Modificación',
+        'Último Uso'
+      ];
+
+      // Función para escapar campos CSV
+      const escapeCSV = (field: string): string => {
+        if (!field) return '';
+        // Escapar comillas dobles duplicándolas
+        const escaped = field.replace(/"/g, '""');
+        // Envolver en comillas si contiene comas, saltos de línea o comillas
+        if (escaped.includes(',') || escaped.includes('\n') || escaped.includes('"')) {
+          return `"${escaped}"`;
+        }
+        return escaped;
+      };
+
+      // Crear filas CSV
+      const rows = passwords.map(p => [
+        escapeCSV(p.siteName),
+        escapeCSV(p.siteUrl || ''),
+        escapeCSV(p.username || ''),
+        escapeCSV(p.email || ''),
+        escapeCSV(p.password), // Contraseña encriptada
+        escapeCSV(p.category),
+        escapeCSV(Array.isArray(p.tags) ? p.tags.join('; ') : ''),
+        escapeCSV(p.notes || ''),
+        escapeCSV(p.createdAt.toISOString()),
+        escapeCSV(p.lastModified.toISOString()),
+        escapeCSV(p.lastUsed?.toISOString() || '')
+      ]);
+
+      // Combinar encabezados y filas
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.join(','))
+      ].join('\n');
+
+      // Agregar BOM para compatibilidad con Excel
+      const csvWithBOM = '\ufeff' + csvContent;
+      
+      // Generar nombre de archivo único con timestamp
+      const now = new Date();
+      const timestamp = now.toISOString()
+        .replace(/[:.]/g, '-')
+        .substring(0, 19); // YYYY-MM-DDTHH-MM-SS
+      const fileName = `masterpass-backup-${timestamp}.csv`;
+      
+      // Definir ruta del archivo
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      // Escribir archivo CSV
+      await FileSystem.writeAsStringAsync(fileUri, csvWithBOM, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      console.log('✅ Archivo CSV creado:', fileUri);
+      console.log('📁 Ubicación:', FileSystem.documentDirectory);
+      console.log('📄 Nombre del archivo:', fileName);
+      console.log('📊 Total de contraseñas exportadas:', passwords.length);
+      
+      // Verificar que el archivo se creó correctamente
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) {
+        return { success: false, error: 'No se pudo crear el archivo CSV' };
+      }
+
+      // Compartir archivo si la plataforma lo soporta
+      try {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: `Exportar CSV de MasterPass (${passwords.length} cuentas)`,
+            UTI: 'public.comma-separated-values-text'
+          });
+        }
+      } catch (shareError) {
+        console.warn('⚠️ No se pudo compartir el archivo CSV automáticamente:', shareError);
+      }
+
+      return { 
+        success: true, 
+        filePath: fileUri,
+        fileName: fileName,
+        error: undefined
+      };
+
+    } catch (error) {
+      console.error('❌ Error exportando a CSV:', error);
+      return { 
+        success: false, 
+        error: `Error durante la exportación CSV: ${error}` 
+      };
+    }
+  }
+
+  /**
+   * Exportar todas las contraseñas a un archivo JSON
+   */
+  async exportToFile(): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string }> {
+    if (!this.isReady()) {
+      return { success: false, error: 'Base de datos no inicializada' };
+    }
+
+    try {
+      const passwords = await this.loadPasswords();
+      
+      if (passwords.length === 0) {
+        return { success: false, error: 'No hay contraseñas para exportar' };
+      }
+
+      // Crear datos de exportación
+      const exportData = {
+        appName: 'MasterPass',
+        version: '1.0.0',
+        exportDate: new Date().toISOString(),
+        totalPasswords: passwords.length,
+        encrypted: true,
+        format: 'MasterPass JSON Export',
+        note: 'Este archivo contiene tus contraseñas encriptadas. Manténlo seguro.',
+        passwords: passwords.map(p => ({
+          id: p.id,
+          siteName: p.siteName,
+          siteUrl: p.siteUrl || '',
+          username: p.username || '',
+          email: p.email || '',
+          password: p.password, // Ya está encriptado
+          category: p.category,
+          tags: Array.isArray(p.tags) ? p.tags : [],
+          notes: p.notes || '',
+          options: p.options,
+          createdAt: p.createdAt.toISOString(),
+          lastModified: p.lastModified.toISOString(),
+          lastUsed: p.lastUsed?.toISOString()
+        }))
+      };
+
+      // Crear contenido JSON formateado
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      
+      // Generar nombre de archivo único con timestamp
+      const now = new Date();
+      const timestamp = now.toISOString()
+        .replace(/[:.]/g, '-')
+        .substring(0, 19); // YYYY-MM-DDTHH-MM-SS
+      const fileName = `masterpass-backup-${timestamp}.json`;
+      
+      // Definir ruta del archivo en la carpeta de documentos del usuario
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      
+      // Escribir archivo
+      await FileSystem.writeAsStringAsync(fileUri, jsonContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      console.log('✅ Archivo de exportación creado:', fileUri);
+      console.log('📁 Ubicación:', FileSystem.documentDirectory);
+      console.log('📄 Nombre del archivo:', fileName);
+      console.log('📊 Total de contraseñas exportadas:', passwords.length);
+      
+      // Verificar que el archivo se creó correctamente
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) {
+        return { success: false, error: 'No se pudo crear el archivo de exportación' };
+      }
+
+      // Compartir archivo si la plataforma lo soporta
+      try {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/json',
+            dialogTitle: `Exportar respaldo de MasterPass (${passwords.length} cuentas)`,
+            UTI: 'public.json'
+          });
+        }
+      } catch (shareError) {
+        console.warn('⚠️ No se pudo compartir el archivo automáticamente:', shareError);
+        // No es un error crítico, el archivo se creó correctamente
+      }
+
+      return { 
+        success: true, 
+        filePath: fileUri,
+        fileName: fileName,
+        error: undefined
+      };
+
+    } catch (error) {
+      console.error('❌ Error exportando a archivo:', error);
+      return { 
+        success: false, 
+        error: `Error durante la exportación: ${error}` 
+      };
+    }
+  }
+
+  /**
+   * Exportar todas las contraseñas (para backup) - Función legacy
    */
   async exportAll(): Promise<string> {
     if (!this.isReady()) {

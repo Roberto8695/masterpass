@@ -214,6 +214,88 @@ export function useDatabase() {
     }
   }, [isReady]);
 
+  // Exportar a archivo JSON
+  const exportToFile = useCallback(async (): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string }> => {
+    if (!isReady) {
+      setError('Base de datos no está lista');
+      return { success: false, error: 'Base de datos no está lista' };
+    }
+
+    try {
+      const result = await databaseService.exportToFile();
+      if (result.success) {
+        console.log('✅ Archivo JSON exportado exitosamente:', result.fileName);
+      } else {
+        console.error('❌ Error exportando a archivo JSON:', result.error);
+        setError(result.error || 'Error desconocido');
+      }
+      return result;
+    } catch (error) {
+      console.error('❌ Error exportando a archivo JSON:', error);
+      const errorMessage = `Error exportando JSON: ${error}`;
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }, [isReady]);
+
+  // Exportar a archivo CSV
+  const exportToCSV = useCallback(async (): Promise<{ success: boolean; filePath?: string; fileName?: string; error?: string }> => {
+    if (!isReady) {
+      setError('Base de datos no está lista');
+      return { success: false, error: 'Base de datos no está lista' };
+    }
+
+    try {
+      const result = await databaseService.exportToCSV();
+      if (result.success) {
+        console.log('✅ Archivo CSV exportado exitosamente:', result.fileName);
+      } else {
+        console.error('❌ Error exportando a archivo CSV:', result.error);
+        setError(result.error || 'Error desconocido');
+      }
+      return result;
+    } catch (error) {
+      console.error('❌ Error exportando a archivo CSV:', error);
+      const errorMessage = `Error exportando CSV: ${error}`;
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  }, [isReady]);
+
+  // Actualizar contraseña existente
+  const updatePassword = useCallback(async (
+    id: string,
+    password?: string,
+    options?: PasswordOptions,
+    siteName?: string,
+    additionalData?: {
+      siteUrl?: string;
+      username?: string;
+      email?: string;
+      category?: string;
+      tags?: string[];
+      notes?: string;
+    }
+  ): Promise<boolean> => {
+    if (!isReady) {
+      setError('Base de datos no está lista');
+      return false;
+    }
+
+    try {
+      await databaseService.updatePassword(id, password, options, siteName, additionalData);
+      console.log('✅ Contraseña actualizada exitosamente');
+      
+      // Recargar contraseñas después de actualizar
+      await loadPasswords();
+      return true;
+    } catch (error) {
+      console.error('❌ Error actualizando contraseña:', error);
+      setError(`Error actualizando: ${error}`);
+      return false;
+    }
+  }, [isReady, loadPasswords]);
+
   // Limpiar todo
   const clearAll = useCallback(async (): Promise<boolean> => {
     if (!isReady) {
@@ -260,10 +342,13 @@ export function useDatabase() {
     
     // Acciones
     savePassword,
+    updatePassword,
     deletePassword,
     markAsUsed,
     searchBySite,
     exportData,
+    exportToFile,
+    exportToCSV,
     clearAll,
     
     // Utilidades

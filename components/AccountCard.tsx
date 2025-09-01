@@ -17,9 +17,10 @@ interface AccountCardProps {
   account: DatabasePassword;
   onDelete: (id: string) => void;
   onMarkAsUsed: (id: string) => void;
+  onEdit: (account: DatabasePassword) => void;
 }
 
-export default function AccountCard({ account, onDelete, onMarkAsUsed }: AccountCardProps) {
+export default function AccountCard({ account, onDelete, onMarkAsUsed, onEdit }: AccountCardProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -215,9 +216,20 @@ export default function AccountCard({ account, onDelete, onMarkAsUsed }: Account
               <Ionicons name="close" size={24} color="#007AFF" />
             </TouchableOpacity>
             <Text style={styles.modalTitle}>{account.siteName}</Text>
-            <TouchableOpacity onPress={confirmDelete} style={styles.deleteButton}>
-              <Ionicons name="trash" size={24} color="#FF3B30" />
-            </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowDetails(false);
+                  onEdit(account);
+                }} 
+                style={styles.editButton}
+              >
+                <Ionicons name="pencil" size={20} color="#007AFF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmDelete} style={styles.deleteButton}>
+                <Ionicons name="trash" size={20} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView style={styles.modalContent}>
@@ -335,7 +347,7 @@ export default function AccountCard({ account, onDelete, onMarkAsUsed }: Account
                   <Text style={styles.strengthText}>{strength.level}</Text>
                 </View>
                 <Text style={styles.strengthDetails}>
-                  {account.options.length} caracteres • 
+                  {account.password.length} caracteres • 
                   {account.options.includeNumbers ? ' Números' : ''} •
                   {account.options.includeSymbols ? ' Símbolos' : ''}
                 </Text>
@@ -597,5 +609,15 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     lineHeight: 22,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editButton: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 20,
+    padding: 8,
+    marginRight: 8,
   },
 });

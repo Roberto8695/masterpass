@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useDatabase } from '../../hooks/useDatabase';
 import { DatabasePassword } from '../../hooks/useDatabase';
 import AddPasswordForm from '../../components/AddPasswordForm';
+import EditPasswordForm from '../../components/EditPasswordForm';
 import AccountCard from '../../components/AccountCard';
 import AccountSearchAndFilter from '../../components/AccountSearchAndFilter';
 
@@ -22,6 +23,8 @@ export default function HistoryScreen() {
   const [filteredPasswords, setFilteredPasswords] = useState<DatabasePassword[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingPassword, setEditingPassword] = useState<DatabasePassword | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -111,6 +114,18 @@ export default function HistoryScreen() {
     Alert.alert('Marcado', 'Contraseña marcada como usada');
   };
 
+  const handleEdit = (password: DatabasePassword) => {
+    setEditingPassword(password);
+    setShowEditForm(true);
+  };
+
+  const handleEditComplete = () => {
+    setShowEditForm(false);
+    setEditingPassword(null);
+    // Recargar datos
+    loadPasswords();
+  };
+
   const onRefresh = async () => {
     setIsRefreshing(true);
     console.log('🔄 Refrescando datos manualmente...');
@@ -152,36 +167,54 @@ export default function HistoryScreen() {
     <>
       <View style={styles.container}>
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="key" size={40} color="#007AFF" />
-            <View>
-              <Text style={styles.title}>Mis Cuentas</Text>
-              <Text style={styles.subtitle}>
-                {passwords.length} cuenta{passwords.length !== 1 ? 's' : ''} guardada{passwords.length !== 1 ? 's' : ''}
-                {passwords.length > 0 && ` • ${passwords.filter(p => p.lastUsed).length} usada${passwords.filter(p => p.lastUsed).length !== 1 ? 's' : ''}`}
-                {filteredPasswords.length !== passwords.length && ` • ${filteredPasswords.length} mostrada${filteredPasswords.length !== 1 ? 's' : ''}`}
-              </Text>
+          <View style={styles.headerTop}>
+            <View style={styles.headerLeft}>
+              <Ionicons name="key" size={36} color="#007AFF" />
+              <View style={styles.titleContainer}>
+                <Text style={styles.title}>Mis Cuentas</Text>
+                <Text style={styles.subtitle}>
+                  {passwords.length} cuenta{passwords.length !== 1 ? 's' : ''} guardada{passwords.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
             </View>
+            
+            <TouchableOpacity onPress={() => setShowAddForm(true)} style={styles.primaryButton}>
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={styles.primaryButtonText}>Añadir</Text>
+            </TouchableOpacity>
           </View>
           
-          <View style={styles.headerActions}>
-            <TouchableOpacity onPress={forceSync} style={[styles.headerButton, {backgroundColor: '#ff9800'}]}>
-              <Ionicons name="refresh" size={24} color="#fff" />
-            </TouchableOpacity>
+          <View style={styles.headerBottom}>
+            <View style={styles.statsContainer}>
+              {passwords.length > 0 && (
+                <>
+                  <Text style={styles.statText}>
+                    {passwords.filter(p => p.lastUsed).length} usada{passwords.filter(p => p.lastUsed).length !== 1 ? 's' : ''}
+                  </Text>
+                  {filteredPasswords.length !== passwords.length && (
+                    <Text style={styles.statText}>
+                      • {filteredPasswords.length} mostrada{filteredPasswords.length !== 1 ? 's' : ''}
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
             
-            <TouchableOpacity onPress={() => setShowSearch(true)} style={styles.headerButton}>
-              <Ionicons name="search" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={() => setShowAddForm(true)} style={styles.headerButton}>
-              <Ionicons name="add" size={24} color="#007AFF" />
-            </TouchableOpacity>
-            
-            {passwords.length > 0 && (
-              <TouchableOpacity onPress={exportPasswords} style={styles.headerButton}>
-                <Ionicons name="download-outline" size={24} color="#007AFF" />
+            <View style={styles.headerActions}>
+              <TouchableOpacity onPress={forceSync} style={[styles.headerButton, styles.refreshButton]}>
+                <Ionicons name="refresh" size={18} color="#fff" />
               </TouchableOpacity>
-            )}
+              
+              <TouchableOpacity onPress={() => setShowSearch(true)} style={styles.headerButton}>
+                <Ionicons name="search" size={18} color="#007AFF" />
+              </TouchableOpacity>
+              
+              {passwords.length > 0 && (
+                <TouchableOpacity onPress={exportPasswords} style={styles.headerButton}>
+                  <Ionicons name="download-outline" size={18} color="#007AFF" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
 
@@ -219,6 +252,7 @@ export default function HistoryScreen() {
                 account={item}
                 onDelete={deletePassword}
                 onMarkAsUsed={handleMarkAsUsed}
+                onEdit={handleEdit}
               />
             )}
             style={styles.accountsList}
@@ -258,6 +292,19 @@ export default function HistoryScreen() {
           Alert.alert('Cuenta Agregada', 'La nueva cuenta ha sido guardada de forma segura.');
         }}
       />
+
+      {/* Formulario de editar contraseña */}
+      {showEditForm && editingPassword && (
+        <EditPasswordForm
+          password={editingPassword}
+          visible={showEditForm}
+          onClose={() => {
+            setShowEditForm(false);
+            setEditingPassword(null);
+          }}
+          onUpdate={handleEditComplete}
+        />
+      )}
     </>
   );
 }
@@ -268,42 +315,79 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 15,
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#e1e5e9',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  headerBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
+  titleContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1a1a1a',
-    marginLeft: 12,
   },
   subtitle: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 12,
     marginTop: 2,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statsContainer: {
+    flex: 1,
+  },
+  statText: {
+    fontSize: 12,
+    color: '#999',
+    marginRight: 4,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   headerButton: {
-    padding: 8,
+    padding: 10,
     borderRadius: 8,
     backgroundColor: '#f0f7ff',
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  refreshButton: {
+    backgroundColor: '#ff9800',
   },
   loadingContainer: {
     flex: 1,

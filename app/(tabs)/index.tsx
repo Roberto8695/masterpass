@@ -339,7 +339,7 @@ export default function PasswordGeneratorScreen() {
       <View style={styles.securityInfo}>
         <Ionicons name="information-circle" size={20} color="#FF9500" />
         <Text style={styles.securityText}>
-          Recomendamos usar al menos 12 caracteres con todos los tipos habilitados para máxima seguridad.
+          Recomendamos usar al menos 15 caracteres con todos los tipos habilitados para máxima seguridad.
         </Text>
       </View>
 
